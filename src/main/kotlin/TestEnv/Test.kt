@@ -40,7 +40,7 @@ fun main(args: Array<String>) {
 
     //val backgroundManager = TemporalBackground(1.0, {r,c -> max(1.0/(Math.pow(c+1.0,0.8)),0.015) },Pair(240,320))
 
-    val backgroundManager = AdvancedTemporalBackground(1.0, Pair(240,320),{r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },55,0.35, 30)
+    val backgroundManager = AdvancedTemporalBackground(1.0, Pair(240,320),{r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },55,0.30, 0.45,30)
     val kernel  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
     //val allKernel = Mat.ones(Size(27.0,27.0),CvType.CV_32F)
     var frameCounter = 0
