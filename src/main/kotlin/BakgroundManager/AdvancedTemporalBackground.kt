@@ -18,7 +18,6 @@ class AdvancedTemporalBackground(var rate : Double,
     private val pixelHistory = Array(imageSize.first){Array(imageSize.second){DoubleArray(historySize){0.0}}}
     private val math = StandardDeviation()
 
-
     fun feed(img : Mat){
 
         var rIndex = 0

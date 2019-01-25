@@ -32,7 +32,7 @@ fun main(args: Array<String>) {
 
     /*
     val start = System.currentTimeMillis()
-    val back = BakgroundManager.BackgroundInitializator.initialize(frames)
+    val back = BakgroundManager.BackgroundInitializator.initializeWithMean(frames)
     val end = System.currentTimeMillis()
 
     println("Time ${end-start}")

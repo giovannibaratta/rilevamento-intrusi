@@ -2,6 +2,7 @@ package TestEnv
 
 import BakgroundManager.AdvancedTemporalBackground
 import BakgroundManager.BackgroundInitializator
+import BakgroundManager.MaskedBackgroundUpdatervar
 import ConvertMat2Image
 import javafx.scene.image.Image
 import javafx.scene.image.ImageView
@@ -13,15 +14,15 @@ import org.opencv.imgproc.Imgproc
 import org.opencv.videoio.VideoCapture
 import tornadofx.*
 import utility.applyMask
+import utility.computeMask
 import utility.grayDifferenceThresholding
 import kotlin.concurrent.thread
+import kotlin.math.abs
 import kotlin.math.max
 
 fun main(args: Array<String>) {
     System.loadLibrary(Core.NATIVE_LIBRARY_NAME)
     println("Apertura video")
-
-
 
     val video = VideoCapture("/videoTest.avi")
     val frames = mutableListOf<Mat>()
@@ -34,7 +35,7 @@ fun main(args: Array<String>) {
     }
 
     val whiteImg = Mat(240,320, CvType.CV_8UC1)
-    val controller = find<TestController>()
+    val controller = find<TestController2>()
     val converted = ConvertMat2Image(whiteImg)
     controller._1 = converted
     controller._2 = converted
@@ -42,20 +43,16 @@ fun main(args: Array<String>) {
     controller._4 = converted
     controller._5 = converted
 
-    val pixelTracking = Array(503){0}
-    val backTracking = Array(503){0}
-
-    //val backgroundManager = TemporalBackground(1.0, {r,c -> max(1.0/(Math.pow(c+1.0,0.8)),0.015) },Pair(240,320))
-
-    val backgroundManager = AdvancedTemporalBackground(
-        1.0,
+    val backgroundManager = MaskedBackgroundUpdatervar(
+        0.6,
         Pair(240,320),
-        {r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },
-        40,
-        0.5,
-        30)
+        //{r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },
+        {r,c -> 0.4},
+        10,
+        20,
+        15)
 
-    //val staticBackground = BackgroundInitializator.initializeWithMean(frames)
+    val initialBackground = BackgroundInitializator.initializeWithMean(frames.subList(0,50))
     //val staticBackground = BackgroundInitializator.initializeWithMode(frames)
 
     val kernelEllipse  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
@@ -67,21 +64,25 @@ fun main(args: Array<String>) {
 
         val closeAfterOpen = Mat()
         val openedDiff = Mat()
+        var reference = initialBackground
 
         frames.forEach {
-            val output = it
+
+            val similarMask = it.computeMask { rIndex, cIndex, pixelValue ->
+                abs(pixelValue - reference[rIndex, cIndex][0]) < pixelValue * 8.0/100
+            }
+
+            //val extractedSimilar = it.applyMask(similarMask)
+
+
             //Imgproc.GaussianBlur(proc, output, Size(13.0,13.0),1.5)
-            backgroundManager.feed(output)
+            backgroundManager.feed(it, similarMask)
 
             // dinamico
-            val ref = backgroundManager.background
+            reference = backgroundManager.background
             // statico
-            //val ref = staticBackground
 
-            val diff = ref.grayDifferenceThresholding(output,25)
-
-            pixelTracking[frameCounter] = output[169,214][0].toInt()
-            backTracking[frameCounter] = ref[169,214][0].toInt()
+            val diff = reference.grayDifferenceThresholding(it,25)
 
             Imgproc.morphologyEx(diff, openedDiff,Imgproc.MORPH_OPEN, kernelEllipse)
             Imgproc.morphologyEx(openedDiff, closeAfterOpen,Imgproc.MORPH_CLOSE, kernelEllipse)
@@ -91,37 +92,37 @@ fun main(args: Array<String>) {
             Imgproc.GaussianBlur(it,blurred,Size(11.0,11.0),2.5)
             Imgproc.Canny(blurred, edges,25.0,5.0)
 
-            val masked = edges.applyMask(closeAfterOpen)
+
+            val morphMask = closeAfterOpen.computeMask { rIndex, cIndex, value -> value > 0.0 }
+            val masked = edges.applyMask(morphMask)
 
             controller.view.view1.image = ConvertMat2Image(it)
             //controller.view.view2.image = ConvertMat2Image(output)
-            controller.view.view2.image = ConvertMat2Image(ref)
+            controller.view.view2.image = ConvertMat2Image(reference)
+            controller.view.view3.image = ConvertMat2Image(diff)
             //controller.view.view4.image = ConvertMat2Image(diff)
-            controller.view.view3.image = ConvertMat2Image(closeAfterOpen)
-            controller.view.view4.image = ConvertMat2Image(edges)
+            //controller.view.view3.image = ConvertMat2Image(closeAfterOpen)
+            controller.view.view4.image = ConvertMat2Image(closeAfterOpen)
             controller.view.view5.image = ConvertMat2Image(masked)
 
             frameCounter++
-            println("Rate : ${backgroundManager.rate}")
+            println("Rate : ${backgroundManager.updateRate}")
             //Thread.sleep(50)
         }
 
-        for(i in 0 until frameCounter)
-            println("Frame $i p:${pixelTracking[i]} b:${backTracking[i]}")
-
     }
 
-    launch<Test>(args)
+    launch<Test2>(args)
 
     println("Termino")
 }
 
 
-class Test : App(TestGUI::class)
+class Test2 : App(TestGUI2::class)
 
-class TestGUI: View() {
+class TestGUI2: View() {
 
-    private val controller : TestController by inject()
+    private val controller : TestController2 by inject()
 
     var view1 : ImageView by singleAssign()
     var view2 : ImageView by singleAssign()
@@ -138,9 +139,9 @@ class TestGUI: View() {
     }
 }
 
-class TestController : Controller(){
+class TestController2 : Controller(){
 
-    val view : TestGUI by inject()
+    val view : TestGUI2 by inject()
     var _1 : Image? = null
     var _2 : Image? = null
     var _3 : Image? = null
