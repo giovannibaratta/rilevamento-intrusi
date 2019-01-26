@@ -12,13 +12,13 @@ class MaskedBackgroundUpdatervar(
     val rateUpdate : (Double, Long) -> Double,
     val historySize : Int,
     val maxHistorySize : Int,
-    val deviationThreshold : Int){
+    val deviationThreshold : Int,
+    val background : Mat = Mat.zeros(imageSize.first, imageSize.second, CvType.CV_8UC1)){
 
     init {
         require(maxHistorySize >= historySize)
     }
 
-    val background = Mat.zeros(imageSize.first, imageSize.second, CvType.CV_8UC1)
     private var imageCount = 0L
     private val pixelHistory = Array(imageSize.first){Array(imageSize.second){ArrayDeque<Double>()}}
     private val math = StandardDeviation()

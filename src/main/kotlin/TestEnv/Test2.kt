@@ -16,6 +16,7 @@ import tornadofx.*
 import utility.applyMask
 import utility.computeMask
 import utility.grayDifferenceThresholding
+import utility.label
 import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.max
@@ -43,69 +44,93 @@ fun main(args: Array<String>) {
     controller._4 = converted
     controller._5 = converted
 
-    val backgroundManager = MaskedBackgroundUpdatervar(
-        0.6,
-        Pair(240,320),
-        //{r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },
-        {r,c -> 0.4},
-        10,
-        20,
-        15)
+
 
     val initialBackground = BackgroundInitializator.initializeWithMean(frames.subList(0,50))
     //val staticBackground = BackgroundInitializator.initializeWithMode(frames)
 
-    val kernelEllipse  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
+    val backgroundManager = MaskedBackgroundUpdatervar(
+        0.6,
+        Pair(240,320),
+        //{r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },
+        {r,c -> 0.1},
+        20,
+        21,
+        12,
+        initialBackground)
+
+    val kernelEllipse  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(5.0,5.0))
+    val kernelDilation = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
 
     var frameCounter = 0
+
+    val skip = false
+    val skipTo = 44
+
 
     thread {
         Thread.sleep(2000)
 
         val closeAfterOpen = Mat()
         val openedDiff = Mat()
+        val dilation = Mat()
         var reference = initialBackground
 
         frames.forEach {
 
             val similarMask = it.computeMask { rIndex, cIndex, pixelValue ->
-                abs(pixelValue - reference[rIndex, cIndex][0]) < pixelValue * 8.0/100
+                abs(pixelValue - reference[rIndex, cIndex][0]) < pixelValue * 8.0 / 100
             }
 
-            //val extractedSimilar = it.applyMask(similarMask)
+
+            if( !(skip && frameCounter < skipTo) ){
+
+                //val extractedSimilar = it.applyMask(similarMask)
+
+                //Imgproc.GaussianBlur(proc, output, Size(13.0,13.0),1.5)
+
+                // dinamico
+
+                // statico
 
 
-            //Imgproc.GaussianBlur(proc, output, Size(13.0,13.0),1.5)
+
+                val diff = reference.grayDifferenceThresholding(it, 20)
+
+                Imgproc.morphologyEx(diff, openedDiff, Imgproc.MORPH_OPEN, kernelEllipse)
+                Imgproc.morphologyEx(openedDiff, closeAfterOpen, Imgproc.MORPH_CLOSE, kernelEllipse)
+
+                Imgproc.morphologyEx(closeAfterOpen, dilation, Imgproc.MORPH_DILATE, kernelDilation)
+                //Imgproc.morphologyEx(detailOpen, detailCloseAfterOpen,Imgproc.MORPH_OPEN, kernelDetail)
+
+
+                val blurred = Mat()
+                val edges = Mat()
+                Imgproc.GaussianBlur(it, blurred, Size(11.0, 11.0), 2.5)
+                Imgproc.Canny(blurred, edges, 25.0, 5.0)
+
+
+                val morphMask = closeAfterOpen.computeMask { rIndex, cIndex, value -> value > 0.0 }
+                val masked = edges.applyMask(morphMask)
+
+                controller.view.view1.image = ConvertMat2Image(it)
+                //controller.view.view2.image = ConvertMat2Image(output)
+                controller.view.view2.image = ConvertMat2Image(reference)
+                controller.view.view3.image = ConvertMat2Image(similarMask)
+                //controller.view.view4.image = ConvertMat2Image(diff)
+                //controller.view.view3.image = ConvertMat2Image(closeAfterOpen)
+                //controller.view.view4.image = ConvertMat2Image(closeAfterOpen)
+                controller.view.view4.image = ConvertMat2Image(diff)
+                controller.view.view5.image = ConvertMat2Image(dilation.label())
+                //println("Calcolo")
+            }
+
             backgroundManager.feed(it, similarMask)
-
-            // dinamico
             reference = backgroundManager.background
-            // statico
-
-            val diff = reference.grayDifferenceThresholding(it,25)
-
-            Imgproc.morphologyEx(diff, openedDiff,Imgproc.MORPH_OPEN, kernelEllipse)
-            Imgproc.morphologyEx(openedDiff, closeAfterOpen,Imgproc.MORPH_CLOSE, kernelEllipse)
-
-            val blurred = Mat()
-            val edges = Mat()
-            Imgproc.GaussianBlur(it,blurred,Size(11.0,11.0),2.5)
-            Imgproc.Canny(blurred, edges,25.0,5.0)
-
-
-            val morphMask = closeAfterOpen.computeMask { rIndex, cIndex, value -> value > 0.0 }
-            val masked = edges.applyMask(morphMask)
-
-            controller.view.view1.image = ConvertMat2Image(it)
-            //controller.view.view2.image = ConvertMat2Image(output)
-            controller.view.view2.image = ConvertMat2Image(reference)
-            controller.view.view3.image = ConvertMat2Image(diff)
-            //controller.view.view4.image = ConvertMat2Image(diff)
-            //controller.view.view3.image = ConvertMat2Image(closeAfterOpen)
-            controller.view.view4.image = ConvertMat2Image(closeAfterOpen)
-            controller.view.view5.image = ConvertMat2Image(masked)
 
             frameCounter++
+
+            println("Frame $frameCounter")
             println("Rate : ${backgroundManager.updateRate}")
             //Thread.sleep(50)
         }
