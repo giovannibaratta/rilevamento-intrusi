@@ -13,10 +13,8 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import org.opencv.videoio.VideoCapture
 import tornadofx.*
-import utility.applyMask
-import utility.computeMask
-import utility.grayDifferenceThresholding
-import utility.label
+import utility.*
+import java.util.concurrent.Semaphore
 import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.max
@@ -45,28 +43,33 @@ fun main(args: Array<String>) {
     controller._5 = converted
 
 
+    //val pixelTracking = Array(503){0}
+    //val backTracking = Array(503){0}
 
     val initialBackground = BackgroundInitializator.initializeWithMean(frames.subList(0,50))
     //val staticBackground = BackgroundInitializator.initializeWithMode(frames)
+
+    val histSize = 10
 
     val backgroundManager = MaskedBackgroundUpdatervar(
         0.6,
         Pair(240,320),
         //{r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },
-        {r,c -> 0.1},
-        20,
-        21,
-        12,
+        {r,c -> 0.25},
+        histSize,
+        histSize+1,
+        7,
         initialBackground)
 
     val kernelEllipse  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(5.0,5.0))
-    val kernelDilation = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
+    val kernelDilation = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(11.0,11.0))
 
     var frameCounter = 0
 
-    val skip = false
-    val skipTo = 44
+    val skip = true
+    val skipTo = 5
 
+    var previousFrame = Triple(frames[0],frames[0],frames[0])
 
     thread {
         Thread.sleep(2000)
@@ -76,16 +79,64 @@ fun main(args: Array<String>) {
         val dilation = Mat()
         var reference = initialBackground
 
+        val semaphore = Semaphore(0)
+
+        var similarMask = Mat()
+        var frameToFrameSimiliraty1 = Mat()
+        var frameToFrameSimiliraty2 = Mat()
+        var frameToFrameSimilarity3 = Mat()
+
+
         frames.forEach {
 
-            val similarMask = it.computeMask { rIndex, cIndex, pixelValue ->
-                abs(pixelValue - reference[rIndex, cIndex][0]) < pixelValue * 8.0 / 100
+            
+            val currentFrame = it
+            //Imgproc.GaussianBlur(it,currentFrame,Size(3.0,3.0),1.5)
+
+            /** CALCOLABILI IN PARALLELO **/
+            thread {
+                similarMask = currentFrame.computeMask { rIndex, cIndex, pixelValue ->
+                    abs(pixelValue - reference[rIndex, cIndex][0]) < 10
+                }
+                semaphore.release()
             }
 
+            thread {
+                frameToFrameSimiliraty1 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
+                    abs(pixelValue - previousFrame.first[rIndex, cIndex][0]) < 13
+                }
+                semaphore.release()
+            }
+
+            thread {
+                frameToFrameSimiliraty2 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
+                    abs(pixelValue - previousFrame.second[rIndex, cIndex][0]) < 15
+                }
+                semaphore.release()
+            }
+
+            thread {
+                frameToFrameSimilarity3 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
+                    abs(pixelValue - previousFrame.third[rIndex, cIndex][0]) < 25
+                }
+                semaphore.release()
+            }
+
+            semaphore.acquire()
+            semaphore.acquire()
+            semaphore.acquire()
+            semaphore.acquire()
+            /** **/
+
+            val originalFrameToFrame = frameToFrameSimiliraty1.combine(frameToFrameSimiliraty2.combine(frameToFrameSimilarity3)).areaOpening(400)
+            val combinedMask = Mat()
+
+            val kernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(3.0,3.0))
+            Imgproc.morphologyEx(originalFrameToFrame, combinedMask,Imgproc.MORPH_ERODE, kernel)
 
             if( !(skip && frameCounter < skipTo) ){
 
-                //val extractedSimilar = it.applyMask(similarMask)
+                //val extractedSimilar = currentFrame.applyMask(similarMask)
 
                 //Imgproc.GaussianBlur(proc, output, Size(13.0,13.0),1.5)
 
@@ -93,9 +144,7 @@ fun main(args: Array<String>) {
 
                 // statico
 
-
-
-                val diff = reference.grayDifferenceThresholding(it, 20)
+                val diff = reference.grayDifferenceThresholding(currentFrame, 20)
 
                 Imgproc.morphologyEx(diff, openedDiff, Imgproc.MORPH_OPEN, kernelEllipse)
                 Imgproc.morphologyEx(openedDiff, closeAfterOpen, Imgproc.MORPH_CLOSE, kernelEllipse)
@@ -103,35 +152,90 @@ fun main(args: Array<String>) {
                 Imgproc.morphologyEx(closeAfterOpen, dilation, Imgproc.MORPH_DILATE, kernelDilation)
                 //Imgproc.morphologyEx(detailOpen, detailCloseAfterOpen,Imgproc.MORPH_OPEN, kernelDetail)
 
+                // TEST
+
+                val areaOpening = diff.areaOpening(350)
+                val testkernel  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
+                val testkerne2  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_CROSS,Size(11.0,11.0))
+                val test = Mat()
+                val int1 = Mat()
+                val int2 = Mat()
+                Imgproc.morphologyEx(areaOpening, int1, Imgproc.MORPH_CLOSE, testkernel)
+                Imgproc.morphologyEx(int1, int2, Imgproc.MORPH_OPEN, testkernel)
+                Imgproc.morphologyEx(int2, test, Imgproc.MORPH_DILATE, testkerne2)
+
+                // FINE TEST
 
                 val blurred = Mat()
                 val edges = Mat()
-                Imgproc.GaussianBlur(it, blurred, Size(11.0, 11.0), 2.5)
-                Imgproc.Canny(blurred, edges, 25.0, 5.0)
+                //Imgproc.GaussianBlur(currentFrame, blurred, Size(11.0, 11.0), 2.5)
+                //Imgproc.Canny(blurred, edges, 25.0, 5.0)
 
 
-                val morphMask = closeAfterOpen.computeMask { rIndex, cIndex, value -> value > 0.0 }
-                val masked = edges.applyMask(morphMask)
+                //val morphMask = closeAfterOpen.computeMask { rIndex, cIndex, value -> value > 0.0 }
+                //val masked = edges.applyMask(morphMask)
 
-                controller.view.view1.image = ConvertMat2Image(it)
+                controller.view.view1.image = ConvertMat2Image(currentFrame)
                 //controller.view.view2.image = ConvertMat2Image(output)
                 controller.view.view2.image = ConvertMat2Image(reference)
-                controller.view.view3.image = ConvertMat2Image(similarMask)
+
+                controller.view.view3.image = ConvertMat2Image(diff)
+
+                // TEST
+                val prova = Mat()
+                val ch1 = Mat(test.rows(), test.cols(), CvType.CV_8U)
+                for(rIndex in 0 until test.rows()){
+                    for(cIndex in 0 until test.cols()){
+                        ch1.put(rIndex,cIndex,test[rIndex,cIndex][0])
+                    }
+                }
+
+                val stat = Mat()
+                val centroid = Mat()
+                val nanosS = System.nanoTime()
+                val numberOfLabels = Imgproc.connectedComponentsWithStats(ch1,prova,stat,centroid)
+                val nanosE = System.nanoTime()
+                println("time = ${nanosE-nanosS} number $numberOfLabels")
+                for(lIndex in 0 until numberOfLabels){
+                    println("Area ${stat.get(lIndex, Imgproc.CC_STAT_AREA)[0]}")
+                }
+                /*for(rIndex in 0 until test.rows()){
+                    for(cIndex in 0 until test.cols()){
+                        if(prova[rIndex,cIndex][0] > 0)
+                        prova.put(rIndex,cIndex,prova[rIndex,cIndex][0] + 50)
+                    }
+                }*/
+
+                // FINE TEST
+                controller.view.view4.image = ConvertMat2Image(prova)
+
+
+                //controller.view.view5.image = ConvertMat2Image(diff)
+
+
                 //controller.view.view4.image = ConvertMat2Image(diff)
                 //controller.view.view3.image = ConvertMat2Image(closeAfterOpen)
                 //controller.view.view4.image = ConvertMat2Image(closeAfterOpen)
-                controller.view.view4.image = ConvertMat2Image(diff)
-                controller.view.view5.image = ConvertMat2Image(dilation.label())
+
+                //controller.view.view4.image = ConvertMat2Image(dilation.label())
+                controller.view.view5.image = ConvertMat2Image( test.label())
+
+
+                //controller.view.view5.image = ConvertMat2Image(test.label())
                 //println("Calcolo")
+
+                //pixelTracking[frameCounter] = currentFrame[210,280][0].toInt()
+                //backTracking[frameCounter] = reference[210,280][0].toInt()
+
             }
 
-            backgroundManager.feed(it, similarMask)
+            backgroundManager.feed(currentFrame, similarMask, combinedMask)
             reference = backgroundManager.background
-
+            previousFrame = Triple(currentFrame.clone(), previousFrame.first, previousFrame.second)
             frameCounter++
 
             println("Frame $frameCounter")
-            println("Rate : ${backgroundManager.updateRate}")
+            //println("Rate : ${backgroundManager.updateRate}")
             //Thread.sleep(50)
         }
 
@@ -139,6 +243,8 @@ fun main(args: Array<String>) {
 
     launch<Test2>(args)
 
+    //for(i in 0 until frameCounter)
+    //    println("Frame $i p:${pixelTracking[i]} b:${backTracking[i]}")
     println("Termino")
 }
 

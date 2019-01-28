@@ -4,7 +4,6 @@ import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import java.util.*
-import kotlin.math.min
 
 class MaskedBackgroundUpdatervar(
     var updateRate : Double,
@@ -23,7 +22,7 @@ class MaskedBackgroundUpdatervar(
     private val pixelHistory = Array(imageSize.first){Array(imageSize.second){ArrayDeque<Double>()}}
     private val math = StandardDeviation()
 
-    fun feed(img : Mat, mask : Mat){
+    fun feed(img : Mat, historyMask : Mat, noUpdateMask : Mat = Mat.ones(img.rows(), img.cols(), CvType.CV_8UC1)){
 
         var rIndex = 0
         var cIndex = 0
@@ -33,17 +32,24 @@ class MaskedBackgroundUpdatervar(
             rIndex = index / imageSize.second
             cIndex = index % imageSize.second
 
+            if(noUpdateMask[rIndex,cIndex][0] < 0){
+                //pixelHistory[rIndex][cIndex].clear()
+                continue
+            }
+
             val imageValue = img[rIndex,cIndex][0]
 
-            if(mask[rIndex,cIndex][0] >= 0){
+            if(historyMask[rIndex,cIndex][0] >= 0){
                 // il pixel appartiene alla maschera e non è cambiato troppo
                 val oldValue = background[rIndex,cIndex][0]
                 val difference = oldValue - imageValue
                 val newValue = oldValue - updateRate * difference
                 background.put(rIndex, cIndex, newValue)
 
-                if(pixelHistory[rIndex][cIndex].isNotEmpty())
+                if(pixelHistory[rIndex][cIndex].isNotEmpty()) {
                     pixelHistory[rIndex][cIndex].clear()
+                    //println("Clear $rIndex $cIndex")
+                }
             }else{
                 // il pixel non appartiene alla maschera, prima di aggiornare il background guardo la sua storia
                 pixelHistory[rIndex][cIndex].add(imageValue)
@@ -54,7 +60,10 @@ class MaskedBackgroundUpdatervar(
                     // se la varianza è troppo alta non aggiorno, poi rimuovo gli elementi se ne ho troppi
                     if(deviation <= deviationThreshold){
                         // varianza accettabile, aggiorno il background
-                        val newValue = pixelHistory[rIndex][cIndex].average()
+                        val mean = pixelHistory[rIndex][cIndex].average()
+                        val oldValue = background[rIndex,cIndex][0]
+                        val difference = oldValue - mean
+                        val newValue = oldValue - 0.05 * difference
                         background.put(rIndex,cIndex,newValue)
                     }
                     if(pixelHistory[rIndex][cIndex].size >= maxHistorySize)
@@ -63,6 +72,12 @@ class MaskedBackgroundUpdatervar(
             }
 
         }
+
+        // DEBUG
+        //pixelHistory[210][280].forEach { print("$it ") }
+        //math.clear()
+        //print(" D: ${math.evaluate(pixelHistory[210][280].toDoubleArray())}")
+        //println("")
         updateRate = rateUpdate(updateRate, ++imageCount)
     }
 }
