@@ -1,9 +1,9 @@
 package TestEnv
 
-import BakgroundManager.AdvancedTemporalBackground
 import BakgroundManager.BackgroundInitializator
-import BakgroundManager.MaskedBackgroundUpdatervar
+import BakgroundManager.MaskedBackgroundUpdater
 import ConvertMat2Image
+import javafx.beans.value.ObservableValue
 import javafx.scene.image.Image
 import javafx.scene.image.ImageView
 import org.opencv.core.Core
@@ -14,10 +14,13 @@ import org.opencv.imgproc.Imgproc
 import org.opencv.videoio.VideoCapture
 import tornadofx.*
 import utility.*
+import javafx.scene.control.TextField
+import java.util.*
 import java.util.concurrent.Semaphore
+import javax.swing.event.ChangeEvent
+import javax.swing.event.ChangeListener
 import kotlin.concurrent.thread
 import kotlin.math.abs
-import kotlin.math.max
 
 fun main(args: Array<String>) {
     System.loadLibrary(Core.NATIVE_LIBRARY_NAME)
@@ -43,6 +46,15 @@ fun main(args: Array<String>) {
     controller._5 = converted
 
 
+    val nextFrameSemaphore = Semaphore(0)
+    controller.subscribeNextButton {
+        nextFrameSemaphore.release()
+    }
+    controller.subscribeSkipTo {
+        for(i in 0 until controller.frameToSkip.toInt())
+            nextFrameSemaphore.release()
+    }
+
     //val pixelTracking = Array(503){0}
     //val backTracking = Array(503){0}
 
@@ -51,7 +63,7 @@ fun main(args: Array<String>) {
 
     val histSize = 10
 
-    val backgroundManager = MaskedBackgroundUpdatervar(
+    val backgroundManager = MaskedBackgroundUpdater(
         0.6,
         Pair(240,320),
         //{r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },
@@ -66,13 +78,18 @@ fun main(args: Array<String>) {
 
     var frameCounter = 0
 
-    val skip = true
+    val skip = false
     val skipTo = 5
+    val sleep = true
+    val sleepTime = 2000L
+    val enableUI = true
 
     var previousFrame = Triple(frames[0],frames[0],frames[0])
 
     thread {
         Thread.sleep(2000)
+
+        controller.initialize()
 
         val closeAfterOpen = Mat()
         val openedDiff = Mat()
@@ -94,41 +111,43 @@ fun main(args: Array<String>) {
             //Imgproc.GaussianBlur(it,currentFrame,Size(3.0,3.0),1.5)
 
             /** CALCOLABILI IN PARALLELO **/
-            thread {
+            //thread {
                 similarMask = currentFrame.computeMask { rIndex, cIndex, pixelValue ->
                     abs(pixelValue - reference[rIndex, cIndex][0]) < 10
                 }
-                semaphore.release()
-            }
+            //    semaphore.release()
+            //}
 
-            thread {
+            //thread {
                 frameToFrameSimiliraty1 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
-                    abs(pixelValue - previousFrame.first[rIndex, cIndex][0]) < 13
+                    abs(pixelValue - previousFrame.first[rIndex, cIndex][0]) < 10
                 }
-                semaphore.release()
-            }
+            //    semaphore.release()
+            //}
 
-            thread {
+            //thread {
                 frameToFrameSimiliraty2 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
-                    abs(pixelValue - previousFrame.second[rIndex, cIndex][0]) < 15
+                    abs(pixelValue - previousFrame.second[rIndex, cIndex][0]) < 13
                 }
-                semaphore.release()
-            }
+            //    semaphore.release()
+            //}
 
-            thread {
+            //thread {
                 frameToFrameSimilarity3 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
-                    abs(pixelValue - previousFrame.third[rIndex, cIndex][0]) < 25
+                    abs(pixelValue - previousFrame.third[rIndex, cIndex][0]) < 18
                 }
-                semaphore.release()
-            }
+            //    semaphore.release()
+            //}
 
-            semaphore.acquire()
-            semaphore.acquire()
-            semaphore.acquire()
-            semaphore.acquire()
+            //semaphore.acquire()
+            //semaphore.acquire()
+            //semaphore.acquire()
+            //semaphore.acquire()
             /** **/
 
-            val originalFrameToFrame = frameToFrameSimiliraty1.combine(frameToFrameSimiliraty2.combine(frameToFrameSimilarity3)).areaOpening(400)
+            val originalFrameToFrame = Mat()
+            val f1f2f3 = frameToFrameSimiliraty1.combine(frameToFrameSimiliraty2.combine(frameToFrameSimilarity3))
+            f1f2f3.areaOpening(400).convertTo(originalFrameToFrame, CvType.CV_8U)
             val combinedMask = Mat()
 
             val kernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(3.0,3.0))
@@ -136,13 +155,7 @@ fun main(args: Array<String>) {
 
             if( !(skip && frameCounter < skipTo) ){
 
-                //val extractedSimilar = currentFrame.applyMask(similarMask)
-
                 //Imgproc.GaussianBlur(proc, output, Size(13.0,13.0),1.5)
-
-                // dinamico
-
-                // statico
 
                 val diff = reference.grayDifferenceThresholding(currentFrame, 20)
 
@@ -150,11 +163,11 @@ fun main(args: Array<String>) {
                 Imgproc.morphologyEx(openedDiff, closeAfterOpen, Imgproc.MORPH_CLOSE, kernelEllipse)
 
                 Imgproc.morphologyEx(closeAfterOpen, dilation, Imgproc.MORPH_DILATE, kernelDilation)
-                //Imgproc.morphologyEx(detailOpen, detailCloseAfterOpen,Imgproc.MORPH_OPEN, kernelDetail)
 
                 // TEST
 
-                val areaOpening = diff.areaOpening(350)
+                val areaOpening = Mat()
+                diff.areaOpening(350).convertTo(areaOpening,CvType.CV_8U)
                 val testkernel  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
                 val testkerne2  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_CROSS,Size(11.0,11.0))
                 val test = Mat()
@@ -179,35 +192,10 @@ fun main(args: Array<String>) {
                 //controller.view.view2.image = ConvertMat2Image(output)
                 controller.view.view2.image = ConvertMat2Image(reference)
 
-                controller.view.view3.image = ConvertMat2Image(diff)
+                controller.view.view3.image = ConvertMat2Image(similarMask)
 
-                // TEST
-                val prova = Mat()
-                val ch1 = Mat(test.rows(), test.cols(), CvType.CV_8U)
-                for(rIndex in 0 until test.rows()){
-                    for(cIndex in 0 until test.cols()){
-                        ch1.put(rIndex,cIndex,test[rIndex,cIndex][0])
-                    }
-                }
 
-                val stat = Mat()
-                val centroid = Mat()
-                val nanosS = System.nanoTime()
-                val numberOfLabels = Imgproc.connectedComponentsWithStats(ch1,prova,stat,centroid)
-                val nanosE = System.nanoTime()
-                println("time = ${nanosE-nanosS} number $numberOfLabels")
-                for(lIndex in 0 until numberOfLabels){
-                    println("Area ${stat.get(lIndex, Imgproc.CC_STAT_AREA)[0]}")
-                }
-                /*for(rIndex in 0 until test.rows()){
-                    for(cIndex in 0 until test.cols()){
-                        if(prova[rIndex,cIndex][0] > 0)
-                        prova.put(rIndex,cIndex,prova[rIndex,cIndex][0] + 50)
-                    }
-                }*/
-
-                // FINE TEST
-                controller.view.view4.image = ConvertMat2Image(prova)
+                controller.view.view4.image = ConvertMat2Image(originalFrameToFrame.label())
 
 
                 //controller.view.view5.image = ConvertMat2Image(diff)
@@ -218,7 +206,7 @@ fun main(args: Array<String>) {
                 //controller.view.view4.image = ConvertMat2Image(closeAfterOpen)
 
                 //controller.view.view4.image = ConvertMat2Image(dilation.label())
-                controller.view.view5.image = ConvertMat2Image( test.label())
+                controller.view.view5.image = ConvertMat2Image( diff)
 
 
                 //controller.view.view5.image = ConvertMat2Image(test.label())
@@ -227,16 +215,23 @@ fun main(args: Array<String>) {
                 //pixelTracking[frameCounter] = currentFrame[210,280][0].toInt()
                 //backTracking[frameCounter] = reference[210,280][0].toInt()
 
+                if(enableUI) {
+                    nextFrameSemaphore.acquire()
+                }else{
+                    if(sleep)
+                        Thread.sleep(sleepTime)
+                }
+
             }
 
-            backgroundManager.feed(currentFrame, similarMask, combinedMask)
+            if(frameCounter > 3)
+                backgroundManager.feed(currentFrame, similarMask, combinedMask)
             reference = backgroundManager.background
             previousFrame = Triple(currentFrame.clone(), previousFrame.first, previousFrame.second)
             frameCounter++
 
             println("Frame $frameCounter")
             //println("Rate : ${backgroundManager.updateRate}")
-            //Thread.sleep(50)
         }
 
     }
@@ -260,14 +255,24 @@ class TestGUI2: View() {
     var view3 : ImageView by singleAssign()
     var view4 : ImageView by singleAssign()
     var view5 : ImageView by singleAssign()
+    var textField : TextField by singleAssign()
 
-    override val root = hbox {
-        view1 = imageview(controller.get1())
-        view2 = imageview(controller.get2())
-        view3 = imageview(controller.get3())
-        view4 = imageview(controller.get4())
-        view5 = imageview(controller.get5())
-    }
+    override val root =
+        vbox {
+            hbox {
+                view1 = imageview(controller.get1())
+                view2 = imageview(controller.get2())
+                view3 = imageview(controller.get3())
+                view4 = imageview(controller.get4())
+                view5 = imageview(controller.get5())
+            }
+            hbox{
+                button("Next frame").action { controller.nextButton() }
+                button("Skip to").action{controller.skipTo()}
+                textField = textfield ("",{})
+            }
+        }
+
 }
 
 class TestController2 : Controller(){
@@ -278,6 +283,44 @@ class TestController2 : Controller(){
     var _3 : Image? = null
     var _4 : Image? = null
     var _5 : Image? = null
+
+    var frameToSkip = ""
+        private set
+
+    private val nextButtonListener = HashMap<UUID,() -> Unit>()
+    private val skipToListener = HashMap<UUID,() -> Unit>()
+
+    fun initialize(){
+        view.textField.textProperty().addListener { observable, oldValue, newValue -> frameToSkip = newValue }
+    }
+
+    fun subscribeNextButton(action : ()->Unit) : UUID{
+        val uuid = UUID.randomUUID()
+        nextButtonListener.put(uuid,action)
+        return uuid
+    }
+
+    fun nextButton(){
+        nextButtonListener.values.forEach { it() }
+    }
+
+    fun unsubscribeNextButton(id : UUID){
+        nextButtonListener.remove(id)
+    }
+
+    fun subscribeSkipTo(action : ()->Unit) : UUID{
+        val uuid = UUID.randomUUID()
+        skipToListener.put(uuid,action)
+        return uuid
+    }
+
+    fun skipTo(){
+        skipToListener.values.forEach { it() }
+    }
+
+    fun unsubscribeSkipTo(id : UUID){
+        skipToListener.remove(id)
+    }
 
     fun get1() : Image {
         val out = _1
@@ -308,4 +351,5 @@ class TestController2 : Controller(){
         if(out == null) throw Exception("Non init")
         return out
     }
+
 }

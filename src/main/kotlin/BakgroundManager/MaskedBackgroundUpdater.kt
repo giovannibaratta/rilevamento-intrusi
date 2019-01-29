@@ -5,7 +5,7 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import java.util.*
 
-class MaskedBackgroundUpdatervar(
+class MaskedBackgroundUpdater(
     var updateRate : Double,
     val imageSize : Pair<Int,Int>,
     val rateUpdate : (Double, Long) -> Double,
@@ -32,14 +32,14 @@ class MaskedBackgroundUpdatervar(
             rIndex = index / imageSize.second
             cIndex = index % imageSize.second
 
-            if(noUpdateMask[rIndex,cIndex][0] < 0){
+            if(noUpdateMask[rIndex,cIndex][0] == 0.0){
                 //pixelHistory[rIndex][cIndex].clear()
                 continue
             }
 
             val imageValue = img[rIndex,cIndex][0]
 
-            if(historyMask[rIndex,cIndex][0] >= 0){
+            if(historyMask[rIndex,cIndex][0] > 0){
                 // il pixel appartiene alla maschera e non è cambiato troppo
                 val oldValue = background[rIndex,cIndex][0]
                 val difference = oldValue - imageValue

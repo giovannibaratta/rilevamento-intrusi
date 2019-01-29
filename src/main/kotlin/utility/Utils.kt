@@ -3,8 +3,13 @@ package utility
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 
 object Utils{
+
+    val labelColor = Array(1024){
+        Triple(Math.random() * 255.0, Math.random() * 255.0, Math.random() * 255.0)
+    }
 
     /**
      * Crea una maschera vuota
@@ -79,7 +84,7 @@ fun Mat.applyMaskNoBlack(mask : Mat) : Mat{
  * Calcola una maschera dell'immagine utilizzando la funzione di selezione dei pixel [isPixelMask]
  */
 fun Mat.computeMask(isPixelMask : (rIndex : Int, cIndex : Int, value : Int)->Boolean) : Mat{
-    val output = Utils.emptyMask(this.rows(), this.cols())
+    val output = Mat.zeros(this.rows(), this.cols(), CvType.CV_8U)
     var rIndex = 0
     var cIndex = 0
     for(index in 0 until this.rows() * this.cols()){
@@ -91,252 +96,73 @@ fun Mat.computeMask(isPixelMask : (rIndex : Int, cIndex : Int, value : Int)->Boo
     return output
 }
 
-fun Mat.label() : Mat{
-    var labelCounter = 0
-    val labeledImage = Mat.zeros(this.rows(), this.cols(),CvType.CV_8UC1)
+/**
+ * Se color = false restituisce un'immagine di tipo CV_32S altrimenti CV_8UC3
+ */
+fun Mat.label(color : Boolean = true) : Mat{
+    val labeledImage = Mat()
+    val numberOfLabels = Imgproc.connectedComponents(this,labeledImage)
 
+    if(color == false) return labeledImage
+
+    val coloredImage = Mat.zeros(labeledImage.rows(), labeledImage.cols(), CvType.CV_8UC3)
     var rIndex = 0
     var cIndex = 0
-    var leftPixelLabel = 0.0
-    var topPixelLabel = 0.0
-    val equivalence = HashSet<Pair<Int,Int>>()
-
-    // first scan
     for(index in 0 until this.rows() * this.cols()) {
         rIndex = index / this.cols()
         cIndex = index % this.cols()
-        leftPixelLabel = 0.0
-        topPixelLabel = 0.0
-        val pixelValue = this[rIndex,cIndex][0]
-        // TODO("DA RIVEDERE PER INCLUDERE IL COLORE NERO")
-        if(pixelValue <= 0) {
-            labeledImage.put(rIndex, cIndex, 0.0)// pixe non appartenente al background
-            continue
-        }
-        if(rIndex > 0)
-            // guardo il pixel top
-            topPixelLabel = labeledImage[rIndex-1,cIndex][0]
-        if(cIndex > 0)
-            leftPixelLabel = labeledImage[rIndex, cIndex-1][0]
-        when{
-            leftPixelLabel == 0.0 && topPixelLabel == 0.0 -> labeledImage.put(rIndex, cIndex, (++labelCounter).toDouble())
-            leftPixelLabel != 0.0 && topPixelLabel == 0.0 -> labeledImage.put(rIndex, cIndex, leftPixelLabel)
-            leftPixelLabel == 0.0 && topPixelLabel != 0.0 -> labeledImage.put(rIndex, cIndex, topPixelLabel)
-            leftPixelLabel != 0.0 && topPixelLabel != 0.0 && leftPixelLabel == topPixelLabel -> labeledImage.put(rIndex, cIndex, topPixelLabel)
-            leftPixelLabel != 0.0 && topPixelLabel != 0.0 && leftPixelLabel != topPixelLabel ->{
-                labeledImage.put(rIndex, cIndex, leftPixelLabel)
-                //if(leftPixelLabel < topPixelLabel)
-                    equivalence.add(Pair(leftPixelLabel.toInt(), topPixelLabel.toInt()))
-                //else
-                  //  equivalence.add(Pair(topPixelLabel, leftPixelLabel))
-            }
+        val label = labeledImage[rIndex, cIndex][0]
+        if (label > 0) {
+            val color = Utils.labelColor[label.toInt()]
+            coloredImage.put(rIndex, cIndex, color.first, color.second, color.third)
         }
     }
 
-    // costruisci l'equivalence matrix
-    val equivalenceMatrix = Array(labelCounter+1){Array(labelCounter+1){0}}
-    equivalence.forEach {
-        equivalenceMatrix[it.first][it.second] = 1
-        equivalenceMatrix[it.second][it.first] = 1
-    }
-    for(i in 1 until equivalenceMatrix.size)
-        equivalenceMatrix[i][i] = 1
-
-    var changed = false
-
-    do {
-        changed = false
-        // risolvi le equivalenze
-        for (i in 1 until equivalenceMatrix.size) {
-            for (j in 1 until equivalenceMatrix.size) {
-                if (equivalenceMatrix[i][j] == 1 && i != j) {
-                    for (k in 1 until equivalenceMatrix.size) {
-                        val pre = equivalenceMatrix[i][k]
-                        equivalenceMatrix[i][k] = equivalenceMatrix[i][k] or equivalenceMatrix[j][k]
-                        if(pre !=  equivalenceMatrix[i][k])
-                            changed = true
-                    }
-                }
-            }
-        }
-        //println("step")
-    }while(changed == true)
-
-    val lutTable = HashMap<Int,Int>()
-
-    for(i in 1 until equivalenceMatrix.size){
-        lutTable[i] = i
-    }
-
-    for(i in 1 until equivalenceMatrix.size) {
-        for (j in 1 until equivalenceMatrix.size) {
-            if(equivalenceMatrix[i][j] == 1 && i != j){
-                lutTable[j] = i
-                for(k in 1 until equivalenceMatrix.size){
-                    equivalenceMatrix[j][k] = 0
-                }
-            }
-        }
-    }
-
-
-    val differentLabel = lutTable.values.toSet()
-    //println("Number of label ${differentLabel.count()}")
-
-    val color = HashMap<Int, Triple<Double,Double,Double>>()
-    differentLabel.forEach {
-        color.put(it, Triple(Math.random() * 255, Math.random() * 255 ,Math.random() * 255))
-    }
-
-
-    val colorImage = Mat.zeros(this.rows(), this.cols(),CvType.CV_8UC3)
-    var labelValue = 0.0
-    // second scan
-    for(index in 0 until this.rows() * this.cols()) {
-        rIndex = index / this.cols()
-        cIndex = index % this.cols()
-        labelValue = labeledImage[rIndex,cIndex][0]
-        if(labelValue == 0.0) continue
-        val labelColor = lutTable[labelValue.toInt()]!!
-        colorImage.put(rIndex, cIndex, color[labelColor]!!.first, color[labelColor]!!.second, color[labelColor]!!.third)
-    }
-
-    return colorImage
+    labeledImage.release()
+    return coloredImage
 }
 
 
 fun Mat.combine(other : Mat) : Mat{
-    val output = Mat(this.rows(), this.cols(), CvType.CV_32F)
+    val output = Mat(this.rows(), this.cols(), CvType.CV_8U)
     var rIndex = 0
     var cIndex = 0
     for(index in 0 until this.rows() * this.cols()){
         rIndex = index / this.cols()
         cIndex = index % this.cols()
-        if(this[rIndex,cIndex][0] >= 0 && other[rIndex,cIndex][0] >= 0)
-            output.put(rIndex,cIndex,255.0)
+        if(this[rIndex,cIndex][0] == 0.0 || other[rIndex,cIndex][0] == 0.0)
+            output.put(rIndex,cIndex,0.0)
         else
-            output.put(rIndex, cIndex, -1.0)
+            output.put(rIndex, cIndex, 255.0)
     }
     return output
 }
 
+/**
+ * L'immagine di input deve essere di tipo CV_8U (1 canale) O CV_8S.
+ * L'immagine di output è di tipo CV_32S
+ */
 fun Mat.areaOpening(areaThreshold : Int) : Mat{
-    var labelCounter = 0
-    val labeledImage = Mat.zeros(this.rows(), this.cols(),CvType.CV_32F)
+    val labelStat = Mat()
+    val labelCentroid = Mat()
+    val labeledImage = Mat()
+    val numberOfLabels = Imgproc.connectedComponentsWithStats(this,labeledImage,labelStat,labelCentroid)
+    val labelToRemove = BooleanArray(numberOfLabels){false}
+
+    for(labelIndex in 1 until numberOfLabels)
+        if(labelStat[labelIndex, Imgproc.CC_STAT_AREA][0] < areaThreshold)
+            labelToRemove[labelIndex] = true
 
     var rIndex = 0
     var cIndex = 0
-    var leftPixelLabel = 0.0
-    var topPixelLabel = 0.0
-    val equivalence = HashSet<Pair<Int,Int>>()
-
-    // first scan
     for(index in 0 until this.rows() * this.cols()) {
         rIndex = index / this.cols()
         cIndex = index % this.cols()
-        leftPixelLabel = 0.0
-        topPixelLabel = 0.0
-        val pixelValue = this[rIndex,cIndex][0]
-        // TODO("DA RIVEDERE PER INCLUDERE IL COLORE NERO")
-        if(pixelValue <= 0) {
-            labeledImage.put(rIndex, cIndex, 0.0)// pixe non appartenente al background
-            continue
-        }
-        if(rIndex > 0)
-        // guardo il pixel top
-            topPixelLabel = labeledImage[rIndex-1,cIndex][0]
-        if(cIndex > 0)
-            leftPixelLabel = labeledImage[rIndex, cIndex-1][0]
-        when{
-            leftPixelLabel == 0.0 && topPixelLabel == 0.0 -> labeledImage.put(rIndex, cIndex, (++labelCounter).toDouble())
-            leftPixelLabel != 0.0 && topPixelLabel == 0.0 -> labeledImage.put(rIndex, cIndex, leftPixelLabel)
-            leftPixelLabel == 0.0 && topPixelLabel != 0.0 -> labeledImage.put(rIndex, cIndex, topPixelLabel)
-            leftPixelLabel != 0.0 && topPixelLabel != 0.0 && leftPixelLabel == topPixelLabel -> labeledImage.put(rIndex, cIndex, topPixelLabel)
-            leftPixelLabel != 0.0 && topPixelLabel != 0.0 && leftPixelLabel != topPixelLabel ->{
-                labeledImage.put(rIndex, cIndex, leftPixelLabel)
-                //if(leftPixelLabel < topPixelLabel)
-                equivalence.add(Pair(leftPixelLabel.toInt(), topPixelLabel.toInt()))
-                //else
-                //  equivalence.add(Pair(topPixelLabel, leftPixelLabel))
-            }
-        }
-    }
-
-    // costruisci l'equivalence matrix
-    val equivalenceMatrix = Array(labelCounter+1){Array(labelCounter+1){0}}
-    equivalence.forEach {
-        equivalenceMatrix[it.first][it.second] = 1
-        equivalenceMatrix[it.second][it.first] = 1
-    }
-    for(i in 1 until equivalenceMatrix.size)
-        equivalenceMatrix[i][i] = 1
-
-    var changed = false
-
-    do {
-        changed = false
-        // risolvi le equivalenze
-        for (i in 1 until equivalenceMatrix.size) {
-            for (j in 1 until equivalenceMatrix.size) {
-                if (equivalenceMatrix[i][j] == 1 && i != j) {
-                    for (k in 1 until equivalenceMatrix.size) {
-                        val pre = equivalenceMatrix[i][k]
-                        equivalenceMatrix[i][k] = equivalenceMatrix[i][k] or equivalenceMatrix[j][k]
-                        if(pre !=  equivalenceMatrix[i][k])
-                            changed = true
-                    }
-                }
-            }
-        }
-        //println("step")
-    }while(changed == true)
-
-    val lutTable = HashMap<Int,Int>()
-
-    for(i in 1 until equivalenceMatrix.size){
-        lutTable[i] = i
-    }
-
-    for(i in 1 until equivalenceMatrix.size) {
-        for (j in 1 until equivalenceMatrix.size) {
-            if(equivalenceMatrix[i][j] == 1 && i != j){
-                lutTable[j] = i
-                for(k in 1 until equivalenceMatrix.size){
-                    equivalenceMatrix[j][k] = 0
-                }
-            }
-        }
-    }
-
-    var labelValue = 0.0
-
-    var labelStat = HashMap<Int,Int>()
-
-    // second scan
-    for(index in 0 until this.rows() * this.cols()) {
-        rIndex = index / this.cols()
-        cIndex = index % this.cols()
-        labelValue = labeledImage[rIndex,cIndex][0]
-        if(labelValue == 0.0) continue
-        val newLabel = lutTable[labelValue.toInt()]!!
-        labeledImage.put(rIndex, cIndex, newLabel.toDouble())
-        if(labelStat.containsKey(newLabel))
-            labelStat[newLabel] = labelStat[newLabel]!! + 1
-        else
-            labelStat[newLabel] = 1
-    }
-
-    for(index in 0 until this.rows() * this.cols()) {
-        rIndex = index / this.cols()
-        cIndex = index % this.cols()
-        labelValue = labeledImage[rIndex,cIndex][0]
-        if(labelValue > 0 && labelStat[labelValue.toInt()]!! >= areaThreshold){
-            labeledImage.put(rIndex,cIndex,255.0)
-        }else
+        if(labelToRemove[labeledImage[rIndex,cIndex][0].toInt()])
             labeledImage.put(rIndex,cIndex,0.0)
-
     }
-    // this scan remove pixel with area less than threshold
 
+    labelStat.release()
+    labelCentroid.release()
     return labeledImage
 }
