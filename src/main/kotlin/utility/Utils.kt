@@ -142,13 +142,14 @@ fun Mat.combine(other : Mat) : Mat{
  * L'immagine di input deve essere di tipo CV_8U (1 canale) O CV_8S.
  * L'immagine di output è di tipo CV_32S
  */
-fun Mat.areaOpening(areaThreshold : Int) : Mat{
+fun Mat.areaOpening(areaThreshold : Int, label : Boolean = true) : Mat{
     val labelStat = Mat()
     val labelCentroid = Mat()
     val labeledImage = Mat()
     val numberOfLabels = Imgproc.connectedComponentsWithStats(this,labeledImage,labelStat,labelCentroid)
     val labelToRemove = BooleanArray(numberOfLabels){false}
 
+    labelToRemove[0] = true // background sempre rimosso
     for(labelIndex in 1 until numberOfLabels)
         if(labelStat[labelIndex, Imgproc.CC_STAT_AREA][0] < areaThreshold)
             labelToRemove[labelIndex] = true
@@ -160,6 +161,10 @@ fun Mat.areaOpening(areaThreshold : Int) : Mat{
         cIndex = index % this.cols()
         if(labelToRemove[labeledImage[rIndex,cIndex][0].toInt()])
             labeledImage.put(rIndex,cIndex,0.0)
+        else{
+            if(!label)
+                labeledImage.put(rIndex,cIndex,255.0)
+        }
     }
 
     labelStat.release()

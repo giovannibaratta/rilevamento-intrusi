@@ -4,11 +4,14 @@ import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import java.util.*
+import kotlin.math.abs
 
 class MaskedBackgroundUpdater(
-    var updateRate : Double,
     val imageSize : Pair<Int,Int>,
-    val rateUpdate : (Double, Long) -> Double,
+    var updateRate : Double,
+    val similarRateUpdate : (Double, Long) -> Double,
+    var historyUpdateRate : Double,
+    val historyRateUpdate : (Double, Long) -> Double,
     val historySize : Int,
     val maxHistorySize : Int,
     val deviationThreshold : Int,
@@ -22,7 +25,7 @@ class MaskedBackgroundUpdater(
     private val pixelHistory = Array(imageSize.first){Array(imageSize.second){ArrayDeque<Double>()}}
     private val math = StandardDeviation()
 
-    fun feed(img : Mat, historyMask : Mat, noUpdateMask : Mat = Mat.ones(img.rows(), img.cols(), CvType.CV_8UC1)){
+    fun feed(img : Mat, historyMask : Mat, similarityThreshold : Int, noUpdateMask : Mat = Mat.ones(img.rows(), img.cols(), CvType.CV_8UC1)){
 
         var rIndex = 0
         var cIndex = 0
@@ -40,15 +43,17 @@ class MaskedBackgroundUpdater(
             val imageValue = img[rIndex,cIndex][0]
 
             if(historyMask[rIndex,cIndex][0] > 0){
-                // il pixel appartiene alla maschera e non è cambiato troppo
+                // il pixel appartiene alla maschera di conseguenza significa che ha subito una leggera variazione rispetto al precedente
                 val oldValue = background[rIndex,cIndex][0]
-                val difference = oldValue - imageValue
-                val newValue = oldValue - updateRate * difference
+                val difference = imageValue-oldValue
+                val newValue = oldValue + updateRate * difference
                 background.put(rIndex, cIndex, newValue)
 
-                if(pixelHistory[rIndex][cIndex].isNotEmpty()) {
+                val similarValue = pixelHistory[rIndex][cIndex].count { abs(it-imageValue) < similarityThreshold }
+                if(similarValue > pixelHistory[rIndex][cIndex].size/2) {
                     pixelHistory[rIndex][cIndex].clear()
-                    //println("Clear $rIndex $cIndex")
+                }else {
+                    pixelHistory[rIndex][cIndex].add(imageValue)
                 }
             }else{
                 // il pixel non appartiene alla maschera, prima di aggiornare il background guardo la sua storia
@@ -62,15 +67,14 @@ class MaskedBackgroundUpdater(
                         // varianza accettabile, aggiorno il background
                         val mean = pixelHistory[rIndex][cIndex].average()
                         val oldValue = background[rIndex,cIndex][0]
-                        val difference = oldValue - mean
-                        val newValue = oldValue - 0.05 * difference
+                        val difference = mean-oldValue
+                        val newValue = oldValue + historyUpdateRate * difference
                         background.put(rIndex,cIndex,newValue)
                     }
-                    if(pixelHistory[rIndex][cIndex].size >= maxHistorySize)
-                        pixelHistory[rIndex][cIndex].remove()
                 }
             }
-
+            if(pixelHistory[rIndex][cIndex].size >= maxHistorySize)
+                pixelHistory[rIndex][cIndex].remove()
         }
 
         // DEBUG
@@ -78,6 +82,7 @@ class MaskedBackgroundUpdater(
         //math.clear()
         //print(" D: ${math.evaluate(pixelHistory[210][280].toDoubleArray())}")
         //println("")
-        updateRate = rateUpdate(updateRate, ++imageCount)
+        updateRate = similarRateUpdate(updateRate, ++imageCount)
+        historyUpdateRate = historyRateUpdate(historyUpdateRate, imageCount)
     }
 }

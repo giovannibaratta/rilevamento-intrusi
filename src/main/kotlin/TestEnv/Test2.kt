@@ -45,46 +45,60 @@ fun main(args: Array<String>) {
     controller._4 = converted
     controller._5 = converted
 
+    var skip = false
+    var skipTo = 5
+    val sleep = true
+    val sleepTime = 2000L
+    val enableUI = true
 
     val nextFrameSemaphore = Semaphore(0)
     controller.subscribeNextButton {
         nextFrameSemaphore.release()
     }
     controller.subscribeSkipTo {
-        for(i in 0 until controller.frameToSkip.toInt())
+        skip = true
+        skipTo = controller.frameToSkip.toInt()
+        nextFrameSemaphore.release()
+        //for(i in 0 until controller.frameToSkip.toInt())
+        //    nextFrameSemaphore.release()
+    }
+
+    var frameCounter = 0
+
+    controller.subscribePlay {
+        for(i in frameCounter until frames.size-1)
             nextFrameSemaphore.release()
     }
 
     //val pixelTracking = Array(503){0}
     //val backTracking = Array(503){0}
 
-    val initialBackground = BackgroundInitializator.initializeWithMean(frames.subList(0,50))
+    val initialBackground = BackgroundInitializator.initializeWithMode(frames.subList(0,65)) //BackgroundInitializator.initializeWithMean(frames.subList(0,100))
     //val staticBackground = BackgroundInitializator.initializeWithMode(frames)
 
-    val histSize = 10
+    val histSize = 12
 
     val backgroundManager = MaskedBackgroundUpdater(
-        0.6,
+
         Pair(240,320),
+        0.3,
         //{r,c -> max(1.0/Math.pow(c+1.0,0.8),0.015) },
-        {r,c -> 0.25},
+        {r,c -> 0.3},
+        0.05,
+        {r,c -> 0.05},
         histSize,
         histSize+1,
-        7,
+        9,
         initialBackground)
 
     val kernelEllipse  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(5.0,5.0))
     val kernelDilation = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(11.0,11.0))
 
-    var frameCounter = 0
 
-    val skip = false
-    val skipTo = 5
-    val sleep = true
-    val sleepTime = 2000L
-    val enableUI = true
 
-    var previousFrame = Triple(frames[0],frames[0],frames[0])
+
+
+    var previousFrameWithGaussian = Triple(frames[0],frames[0],frames[0])
 
     thread {
         Thread.sleep(2000)
@@ -98,43 +112,46 @@ fun main(args: Array<String>) {
 
         val semaphore = Semaphore(0)
 
-        var similarMask = Mat()
-        var frameToFrameSimiliraty1 = Mat()
-        var frameToFrameSimiliraty2 = Mat()
-        var frameToFrameSimilarity3 = Mat()
+        var similarMask : Mat
+        var frameToFrameSimiliraty1 : Mat
+        var frameToFrameSimiliraty2 : Mat
+        var frameToFrameSimilarity3 : Mat
+
+        val similarityThreshold = 10
 
 
         frames.forEach {
 
             
             val currentFrame = it
-            //Imgproc.GaussianBlur(it,currentFrame,Size(3.0,3.0),1.5)
+            val currentWithGaussian = Mat()
+            Imgproc.GaussianBlur(currentFrame,currentWithGaussian,Size(3.0,3.0),1.2)
 
             /** CALCOLABILI IN PARALLELO **/
             //thread {
                 similarMask = currentFrame.computeMask { rIndex, cIndex, pixelValue ->
-                    abs(pixelValue - reference[rIndex, cIndex][0]) < 10
+                    abs(pixelValue - reference[rIndex, cIndex][0]) < similarityThreshold
                 }
             //    semaphore.release()
             //}
 
             //thread {
-                frameToFrameSimiliraty1 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
-                    abs(pixelValue - previousFrame.first[rIndex, cIndex][0]) < 10
+                frameToFrameSimiliraty1 = currentWithGaussian.computeMask{ rIndex, cIndex, pixelValue ->
+                    abs(pixelValue - previousFrameWithGaussian.first[rIndex, cIndex][0]) < 8
                 }
             //    semaphore.release()
             //}
 
             //thread {
-                frameToFrameSimiliraty2 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
-                    abs(pixelValue - previousFrame.second[rIndex, cIndex][0]) < 13
+                frameToFrameSimiliraty2 = currentWithGaussian.computeMask{ rIndex, cIndex, pixelValue ->
+                    abs(pixelValue - previousFrameWithGaussian.second[rIndex, cIndex][0]) < 10
                 }
             //    semaphore.release()
             //}
 
             //thread {
-                frameToFrameSimilarity3 = currentFrame.computeMask{ rIndex, cIndex, pixelValue ->
-                    abs(pixelValue - previousFrame.third[rIndex, cIndex][0]) < 18
+                frameToFrameSimilarity3 = currentWithGaussian.computeMask{ rIndex, cIndex, pixelValue ->
+                    abs(pixelValue - previousFrameWithGaussian.third[rIndex, cIndex][0]) < 15
                 }
             //    semaphore.release()
             //}
@@ -145,19 +162,38 @@ fun main(args: Array<String>) {
             //semaphore.acquire()
             /** **/
 
-            val originalFrameToFrame = Mat()
-            val f1f2f3 = frameToFrameSimiliraty1.combine(frameToFrameSimiliraty2.combine(frameToFrameSimilarity3))
-            f1f2f3.areaOpening(400).convertTo(originalFrameToFrame, CvType.CV_8U)
-            val combinedMask = Mat()
+            //val originalFrameToFrame = Mat()
+
+
+
+            //val f1f2f3 = frameToFrameSimiliraty1.combine(frameToFrameSimiliraty2.combine(frameToFrameSimilarity3))
+            //f1f2f3.areaOpening(800).convertTo(originalFrameToFrame, CvType.CV_8U)
+            //val combinedMask = Mat()
+
+
+            val areopeningSimilar = similarMask.areaOpening(400, false)
 
             val kernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(3.0,3.0))
-            Imgproc.morphologyEx(originalFrameToFrame, combinedMask,Imgproc.MORPH_ERODE, kernel)
+            val kernelBig = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(17.0, 17.0))
+            //Imgproc.morphologyEx(originalFrameToFrame, combinedMask,Imgproc.MORPH_ERODE, kernel)
+            val rectKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_RECT,Size(5.0,5.0))
+            val frame1Morph = Mat()
+            val frame2Morph = Mat()
+            val frame3Morph = Mat()
+            Imgproc.morphologyEx(frameToFrameSimiliraty1, frame1Morph,Imgproc.MORPH_CLOSE, rectKernel)
+            Imgproc.morphologyEx(frameToFrameSimiliraty2, frame2Morph,Imgproc.MORPH_CLOSE, rectKernel)
+            Imgproc.morphologyEx(frameToFrameSimilarity3, frame3Morph,Imgproc.MORPH_CLOSE, rectKernel)
+            val union = frame1Morph.combine(frame2Morph.combine(frame3Morph))
+            val unionOpen = Mat()
+            Imgproc.morphologyEx(union, unionOpen,Imgproc.MORPH_OPEN,kernel)
+            val unionDilation = Mat()
+            Imgproc.morphologyEx(unionOpen, unionDilation, Imgproc.MORPH_ERODE, kernelBig)
 
-            if( !(skip && frameCounter < skipTo) ){
+                if( !(skip && frameCounter < skipTo) ){
 
                 //Imgproc.GaussianBlur(proc, output, Size(13.0,13.0),1.5)
 
-                val diff = reference.grayDifferenceThresholding(currentFrame, 20)
+                val diff = reference.grayDifferenceThresholding(currentFrame, 30)
 
                 Imgproc.morphologyEx(diff, openedDiff, Imgproc.MORPH_OPEN, kernelEllipse)
                 Imgproc.morphologyEx(openedDiff, closeAfterOpen, Imgproc.MORPH_CLOSE, kernelEllipse)
@@ -167,7 +203,7 @@ fun main(args: Array<String>) {
                 // TEST
 
                 val areaOpening = Mat()
-                diff.areaOpening(350).convertTo(areaOpening,CvType.CV_8U)
+                diff.areaOpening(125/*350*/).convertTo(areaOpening,CvType.CV_8U)
                 val testkernel  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
                 val testkerne2  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_CROSS,Size(11.0,11.0))
                 val test = Mat()
@@ -179,8 +215,8 @@ fun main(args: Array<String>) {
 
                 // FINE TEST
 
-                val blurred = Mat()
-                val edges = Mat()
+                //val blurred = Mat()
+                //val edges = Mat()
                 //Imgproc.GaussianBlur(currentFrame, blurred, Size(11.0, 11.0), 2.5)
                 //Imgproc.Canny(blurred, edges, 25.0, 5.0)
 
@@ -192,21 +228,44 @@ fun main(args: Array<String>) {
                 //controller.view.view2.image = ConvertMat2Image(output)
                 controller.view.view2.image = ConvertMat2Image(reference)
 
-                controller.view.view3.image = ConvertMat2Image(similarMask)
+                //controller.view.view3.image = ConvertMat2Image(combinedMask.label())
 
 
-                controller.view.view4.image = ConvertMat2Image(originalFrameToFrame.label())
+                //controller.view.view4.image = ConvertMat2Image(similarMask)
 
 
                 //controller.view.view5.image = ConvertMat2Image(diff)
 
 
                 //controller.view.view4.image = ConvertMat2Image(diff)
-                //controller.view.view3.image = ConvertMat2Image(closeAfterOpen)
-                //controller.view.view4.image = ConvertMat2Image(closeAfterOpen)
+                controller.view.view3.image = ConvertMat2Image(diff)
+
+                    // test
+
+                    //val openSimilarity = Mat()
+                    //similarMask.are
+
+                // TEST
+                    val referenceWithGaussian = Mat()
+                    Imgproc.GaussianBlur(reference,referenceWithGaussian,Size(3.0,3.0),1.2)
+                    val gaussianDiff = Mat()
+                    referenceWithGaussian.grayDifferenceThresholding(currentWithGaussian, 30).areaOpening(20,false).convertTo(gaussianDiff,CvType.CV_8U)
+                    val dilationOnDiff = Mat()
+
+                    val crossKernel  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(5.0,5.0))
+                    Imgproc.morphologyEx(gaussianDiff,dilationOnDiff,Imgproc.MORPH_DILATE,crossKernel)
+                    val openDilationOnDiff = Mat()
+                    dilationOnDiff.areaOpening(450, false).convertTo(openDilationOnDiff,CvType.CV_8U)
+                    val aBitOfDilation = Mat()
+                    val crossKernelBig  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(9.0,9.0))
+                    Imgproc.morphologyEx(openDilationOnDiff,aBitOfDilation,Imgproc.MORPH_DILATE,crossKernelBig)
+                    //
+
+                controller.view.view4.image = ConvertMat2Image(gaussianDiff)
 
                 //controller.view.view4.image = ConvertMat2Image(dilation.label())
-                controller.view.view5.image = ConvertMat2Image( diff)
+
+                controller.view.view5.image = ConvertMat2Image(it.applyMaskNoBlack(aBitOfDilation))
 
 
                 //controller.view.view5.image = ConvertMat2Image(test.label())
@@ -225,10 +284,13 @@ fun main(args: Array<String>) {
             }
 
             if(frameCounter > 3)
-                backgroundManager.feed(currentFrame, similarMask, combinedMask)
+                backgroundManager.feed(currentFrame, areopeningSimilar/*similarMask*/,similarityThreshold, unionDilation/*ncombinedMask*/)
             reference = backgroundManager.background
-            previousFrame = Triple(currentFrame.clone(), previousFrame.first, previousFrame.second)
+            previousFrameWithGaussian = Triple(currentWithGaussian.clone(), previousFrameWithGaussian.first, previousFrameWithGaussian.second)
             frameCounter++
+
+            if(skip && frameCounter == skipTo)
+                skip = false
 
             println("Frame $frameCounter")
             //println("Rate : ${backgroundManager.updateRate}")
@@ -268,6 +330,7 @@ class TestGUI2: View() {
             }
             hbox{
                 button("Next frame").action { controller.nextButton() }
+                button("Play").action{controller.play()}
                 button("Skip to").action{controller.skipTo()}
                 textField = textfield ("",{})
             }
@@ -289,9 +352,10 @@ class TestController2 : Controller(){
 
     private val nextButtonListener = HashMap<UUID,() -> Unit>()
     private val skipToListener = HashMap<UUID,() -> Unit>()
+    private val playListener = HashMap<UUID,() -> Unit>()
 
     fun initialize(){
-        view.textField.textProperty().addListener { observable, oldValue, newValue -> frameToSkip = newValue }
+        view.textField.textProperty().addListener { _, _, newValue -> frameToSkip = newValue }
     }
 
     fun subscribeNextButton(action : ()->Unit) : UUID{
@@ -306,6 +370,20 @@ class TestController2 : Controller(){
 
     fun unsubscribeNextButton(id : UUID){
         nextButtonListener.remove(id)
+    }
+
+    fun subscribePlay(action : ()->Unit) : UUID{
+        val uuid = UUID.randomUUID()
+        playListener.put(uuid,action)
+        return uuid
+    }
+
+    fun play(){
+        playListener.values.forEach { it() }
+    }
+
+    fun unsubscribePlay(id : UUID){
+       playListener.remove(id)
     }
 
     fun subscribeSkipTo(action : ()->Unit) : UUID{
