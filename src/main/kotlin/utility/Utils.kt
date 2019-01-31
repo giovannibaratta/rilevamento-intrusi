@@ -171,3 +171,44 @@ fun Mat.areaOpening(areaThreshold : Int, label : Boolean = true) : Mat{
     labelCentroid.release()
     return labeledImage
 }
+
+fun colorEdge(edges : Mat, mask : Mat, colorInMask : Triple<Double,Double,Double> = Triple(0.0,0.0,255.0), colorOutOfMask : Triple<Double,Double,Double> = Triple(255.0,255.0,255.0)) : Mat{
+    val coloredEdges = Mat.zeros(edges.rows(), edges.cols(), CvType.CV_8UC3)
+    var rIndex = 0
+    var cIndex = 0
+    for(index in 0 until coloredEdges.rows() * coloredEdges.cols()) {
+        rIndex = index / coloredEdges.cols()
+        cIndex = index % coloredEdges.cols()
+
+        if(edges[rIndex,cIndex][0] > 0) {
+            if (mask[rIndex, cIndex][0] > 0) {
+                coloredEdges.put(rIndex,cIndex,colorInMask.first,colorInMask.second,colorInMask.third)
+            }else{
+                coloredEdges.put(rIndex,cIndex,colorOutOfMask.first,colorOutOfMask.second,colorOutOfMask.third)
+            }
+        }
+    }
+    return coloredEdges
+}
+
+fun Mat.applyEdge(edges : Mat, mask : Mat, colorInMask : Triple<Double,Double,Double> = Triple(0.0,0.0,255.0)) : Mat{
+    val imageWithEdges = Mat(this.rows(), this.cols(), CvType.CV_8UC3)
+    var rIndex = 0
+    var cIndex = 0
+    for(index in 0 until this.rows() * this.cols()) {
+        rIndex = index / this.cols()
+        cIndex = index % this.cols()
+        if(edges[rIndex,cIndex][0] > 0) {
+            if (mask[rIndex, cIndex][0] > 0) {
+                imageWithEdges.put(rIndex,cIndex,colorInMask.first,colorInMask.second,colorInMask.third)
+            }else{
+                val imageValue = this[rIndex,cIndex][0]
+                imageWithEdges.put(rIndex,cIndex,imageValue,imageValue,imageValue)
+            }
+        }else{
+            val imageValue = this[rIndex,cIndex][0]
+            imageWithEdges.put(rIndex,cIndex,imageValue,imageValue,imageValue)
+        }
+    }
+    return imageWithEdges
+}

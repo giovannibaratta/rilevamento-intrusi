@@ -24,6 +24,11 @@ import kotlin.math.abs
 
 fun main(args: Array<String>) {
     System.loadLibrary(Core.NATIVE_LIBRARY_NAME)
+
+    val availableCPU = Runtime.getRuntime().availableProcessors()
+
+    println("Available CPU : $availableCPU")
+
     println("Apertura video")
 
     val video = VideoCapture("/videoTest.avi")
@@ -105,9 +110,6 @@ fun main(args: Array<String>) {
 
         controller.initialize()
 
-        val closeAfterOpen = Mat()
-        val openedDiff = Mat()
-        val dilation = Mat()
         var reference = initialBackground
 
         val semaphore = Semaphore(0)
@@ -119,6 +121,25 @@ fun main(args: Array<String>) {
 
         val similarityThreshold = 10
 
+        /* IMG DI SUPPORTO */
+        val frame1Morph = Mat()
+        val frame2Morph = Mat()
+        val frame3Morph = Mat()
+        val unionOpen = Mat()
+        val unionDilation = Mat()
+        val dilationOnDiff = Mat()
+        val aBitOfDilation = Mat()
+        val openDilationOnDiff = Mat()
+        val gaussianDiff = Mat()
+        val referenceWithGaussian = Mat()
+        val edges = Mat()
+
+        /* KERNEL */
+        val kernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(3.0,3.0))
+        val kernelBig = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(17.0, 17.0))
+        val rectKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_RECT,Size(5.0,5.0))
+        val crossKernel  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(5.0,5.0))
+        val crossKernelBig  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(9.0,9.0))
 
         frames.forEach {
 
@@ -162,124 +183,47 @@ fun main(args: Array<String>) {
             //semaphore.acquire()
             /** **/
 
-            //val originalFrameToFrame = Mat()
-
-
-
-            //val f1f2f3 = frameToFrameSimiliraty1.combine(frameToFrameSimiliraty2.combine(frameToFrameSimilarity3))
-            //f1f2f3.areaOpening(800).convertTo(originalFrameToFrame, CvType.CV_8U)
-            //val combinedMask = Mat()
-
-
             val areopeningSimilar = similarMask.areaOpening(400, false)
 
-            val kernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(3.0,3.0))
-            val kernelBig = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(17.0, 17.0))
-            //Imgproc.morphologyEx(originalFrameToFrame, combinedMask,Imgproc.MORPH_ERODE, kernel)
-            val rectKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_RECT,Size(5.0,5.0))
-            val frame1Morph = Mat()
-            val frame2Morph = Mat()
-            val frame3Morph = Mat()
+            /* elaborazione della maschera no background */
             Imgproc.morphologyEx(frameToFrameSimiliraty1, frame1Morph,Imgproc.MORPH_CLOSE, rectKernel)
             Imgproc.morphologyEx(frameToFrameSimiliraty2, frame2Morph,Imgproc.MORPH_CLOSE, rectKernel)
             Imgproc.morphologyEx(frameToFrameSimilarity3, frame3Morph,Imgproc.MORPH_CLOSE, rectKernel)
+
             val union = frame1Morph.combine(frame2Morph.combine(frame3Morph))
-            val unionOpen = Mat()
             Imgproc.morphologyEx(union, unionOpen,Imgproc.MORPH_OPEN,kernel)
-            val unionDilation = Mat()
             Imgproc.morphologyEx(unionOpen, unionDilation, Imgproc.MORPH_ERODE, kernelBig)
 
-                if( !(skip && frameCounter < skipTo) ){
+            /* calcolo dell'immagine differenza tra frame corrente e background entrambi gaussianizzati */
+            Imgproc.GaussianBlur(reference,referenceWithGaussian,Size(3.0,3.0),1.2)
+            referenceWithGaussian.grayDifferenceThresholding(currentWithGaussian, 30).areaOpening(20,false).convertTo(gaussianDiff,CvType.CV_8U)
+            /* elaborazione della differenza ottenuta */
+            Imgproc.morphologyEx(gaussianDiff,dilationOnDiff,Imgproc.MORPH_DILATE,crossKernel)
+            dilationOnDiff.areaOpening(450, false).convertTo(openDilationOnDiff,CvType.CV_8U)
+            Imgproc.morphologyEx(openDilationOnDiff,aBitOfDilation,Imgproc.MORPH_DILATE,crossKernelBig)
 
-                //Imgproc.GaussianBlur(proc, output, Size(13.0,13.0),1.5)
+            /* TEST EDGES */
+            //Imgproc.GaussianBlur(currentFrame,superGaussian,Size(5.0,5.0),256.0)
+            val superGaussian = Mat()
+            Imgproc.GaussianBlur(currentFrame,superGaussian,Size(7.0,7.0),1.5)
+            Imgproc.Canny(superGaussian,edges,65.0,100.0)
 
-                val diff = reference.grayDifferenceThresholding(currentFrame, 30)
-
-                Imgproc.morphologyEx(diff, openedDiff, Imgproc.MORPH_OPEN, kernelEllipse)
-                Imgproc.morphologyEx(openedDiff, closeAfterOpen, Imgproc.MORPH_CLOSE, kernelEllipse)
-
-                Imgproc.morphologyEx(closeAfterOpen, dilation, Imgproc.MORPH_DILATE, kernelDilation)
-
-                // TEST
-
-                val areaOpening = Mat()
-                diff.areaOpening(125/*350*/).convertTo(areaOpening,CvType.CV_8U)
-                val testkernel  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(7.0,7.0))
-                val testkerne2  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_CROSS,Size(11.0,11.0))
-                val test = Mat()
-                val int1 = Mat()
-                val int2 = Mat()
-                Imgproc.morphologyEx(areaOpening, int1, Imgproc.MORPH_CLOSE, testkernel)
-                Imgproc.morphologyEx(int1, int2, Imgproc.MORPH_OPEN, testkernel)
-                Imgproc.morphologyEx(int2, test, Imgproc.MORPH_DILATE, testkerne2)
-
-                // FINE TEST
-
-                //val blurred = Mat()
-                //val edges = Mat()
-                //Imgproc.GaussianBlur(currentFrame, blurred, Size(11.0, 11.0), 2.5)
-                //Imgproc.Canny(blurred, edges, 25.0, 5.0)
-
-
-                //val morphMask = closeAfterOpen.computeMask { rIndex, cIndex, value -> value > 0.0 }
-                //val masked = edges.applyMask(morphMask)
+            if( !(skip && frameCounter < skipTo) ){
 
                 controller.view.view1.image = ConvertMat2Image(currentFrame)
-                //controller.view.view2.image = ConvertMat2Image(output)
-                controller.view.view2.image = ConvertMat2Image(reference)
-
-                //controller.view.view3.image = ConvertMat2Image(combinedMask.label())
-
-
-                //controller.view.view4.image = ConvertMat2Image(similarMask)
-
-
-                //controller.view.view5.image = ConvertMat2Image(diff)
-
-
-                //controller.view.view4.image = ConvertMat2Image(diff)
-                controller.view.view3.image = ConvertMat2Image(diff)
-
-                    // test
-
-                    //val openSimilarity = Mat()
-                    //similarMask.are
-
-                // TEST
-                    val referenceWithGaussian = Mat()
-                    Imgproc.GaussianBlur(reference,referenceWithGaussian,Size(3.0,3.0),1.2)
-                    val gaussianDiff = Mat()
-                    referenceWithGaussian.grayDifferenceThresholding(currentWithGaussian, 30).areaOpening(20,false).convertTo(gaussianDiff,CvType.CV_8U)
-                    val dilationOnDiff = Mat()
-
-                    val crossKernel  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(5.0,5.0))
-                    Imgproc.morphologyEx(gaussianDiff,dilationOnDiff,Imgproc.MORPH_DILATE,crossKernel)
-                    val openDilationOnDiff = Mat()
-                    dilationOnDiff.areaOpening(450, false).convertTo(openDilationOnDiff,CvType.CV_8U)
-                    val aBitOfDilation = Mat()
-                    val crossKernelBig  = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(9.0,9.0))
-                    Imgproc.morphologyEx(openDilationOnDiff,aBitOfDilation,Imgproc.MORPH_DILATE,crossKernelBig)
-                    //
-
-                controller.view.view4.image = ConvertMat2Image(gaussianDiff)
-
-                //controller.view.view4.image = ConvertMat2Image(dilation.label())
-
-                controller.view.view5.image = ConvertMat2Image(it.applyMaskNoBlack(aBitOfDilation))
-
-
-                //controller.view.view5.image = ConvertMat2Image(test.label())
-                //println("Calcolo")
+                controller.view.view2.image = ConvertMat2Image(/*reference*/ /*superGaussian*/reference)
+                controller.view.view3.image = ConvertMat2Image(colorEdge(edges,aBitOfDilation))
+                controller.view.view4.image = ConvertMat2Image(currentFrame.applyMaskNoBlack(aBitOfDilation))
+                controller.view.view5.image = ConvertMat2Image(currentFrame.applyEdge(edges,aBitOfDilation))
 
                 //pixelTracking[frameCounter] = currentFrame[210,280][0].toInt()
                 //backTracking[frameCounter] = reference[210,280][0].toInt()
 
-                if(enableUI) {
+                if(enableUI)
                     nextFrameSemaphore.acquire()
-                }else{
+                else
                     if(sleep)
                         Thread.sleep(sleepTime)
-                }
 
             }
 
