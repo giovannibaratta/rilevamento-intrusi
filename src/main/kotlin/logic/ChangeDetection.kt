@@ -3,9 +3,7 @@ package logic
 import background.BackgroundInitializator
 import background.MaskedBackgroundUpdater
 import model.VideoModel
-import org.opencv.core.CvType
-import org.opencv.core.Mat
-import org.opencv.core.Size
+import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import utility.*
 import utility.multithread.WorkerManager
@@ -23,9 +21,9 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
     private val areaOpeningDilationGuassianDifference = Mat()
     private val gaussianDifference = Mat()
     private val referenceWithGaussian = Mat()
-    private val edges = Mat()
     private var reference : Mat
     private val currentFrameWithGaussian = Mat()
+    private val closedChangedMask = Mat()
 
     /* KERNEL */
     private val noUpdateOpenKernel : Mat
@@ -33,6 +31,7 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
     private val frameToFrameKernel : Mat
     private val changeMaskFirstDilationKernel : Mat
     private val changeMaskSecondDilationKernel : Mat
+    private val changedMaskClosingKernel : Mat
 
     /* PARAMETRI */
     private val guassianSizeCurrentFrame : Double
@@ -47,10 +46,6 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
     private val frameToFrame1Threshold : Int
     private val frameToFrame2Threshold : Int
     private val frameToFrame3Threshold : Int
-    private val guassianSizeCanny : Double
-    private val guassianSigmaCanny : Double
-    private val cannyThresholdLow : Double
-    private val cannyThresholdHigh : Double
 
     private val initialBackground : Mat
     private val backgroundUpdater : MaskedBackgroundUpdater
@@ -72,23 +67,20 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
         frameToFrame1Threshold = Params.FRAME_TO_FRAME_1_THRESHOLD.defaultValue.toInt()
         frameToFrame2Threshold = Params.FRAME_TO_FRAME_2_THRESHOLD.defaultValue.toInt()
         frameToFrame3Threshold = Params.FRAME_TO_FRAME_3_THRESHOLD.defaultValue.toInt()
-        guassianSizeCanny = Params.GUASSIAN_SIZE_CANNY.defaultValue.toDouble()
-        guassianSigmaCanny = Params.GUASSIAN_SIGMA_CANNY.defaultValue.toDouble()
-        cannyThresholdLow = Params.CANNY_THRESHOLD_LOW.defaultValue.toDouble()
-        cannyThresholdHigh = Params.CANNY_THRESHOLD_HIGH.defaultValue.toDouble()
 
         val changeMaskFirstDilationKernelSize = Params.CHANGE_MASK_DILATION_1_KERNEL_SIZE.defaultValue.toDouble()
         val changeMaskSecondDilationKernelSize = Params.CHANGE_MASK_DILATION_2_KERNEL_SIZE.defaultValue.toDouble()
         val frameToFrameKernelSize = Params.FRAME_TO_FRAME_KERNEL_SIZE.defaultValue.toDouble()
         val noUpdateOpenKernelSize = Params.NO_UPDATE_OPEN_KERNEL_SIZE.defaultValue.toDouble()
         val noUpdateErosionKernelSize = Params.NO_UPDATE_EROSION_KERNEL_SIZE.defaultValue.toDouble()
+        val closingChangedMaskKernelSize = Params.CHANGE_MASK_CLOSING_KERNEL_SIZE.defaultValue.toDouble()
 
         changeMaskFirstDilationKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE, Size(changeMaskFirstDilationKernelSize,changeMaskFirstDilationKernelSize))
         changeMaskSecondDilationKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE, Size(changeMaskSecondDilationKernelSize,changeMaskSecondDilationKernelSize))
         frameToFrameKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_RECT, Size(frameToFrameKernelSize,frameToFrameKernelSize))
-
         noUpdateOpenKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE, Size(noUpdateOpenKernelSize,noUpdateOpenKernelSize))
         noUpdateErosionKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE, Size(noUpdateErosionKernelSize, noUpdateErosionKernelSize))
+        changedMaskClosingKernel = Imgproc.getStructuringElement(Imgproc.CV_SHAPE_ELLIPSE,Size(15.0,15.0))
 
         initialBackground =
             BackgroundInitializator.initializeWithMode(video.frames.slice(0 until Params.INITIAL_FRAME.defaultValue.toInt()))
@@ -148,14 +140,11 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
             Imgproc.morphologyEx(fToFDifference, closeFrameToFrame3Difference, Imgproc.MORPH_CLOSE, frameToFrameKernel)
         }
 
-        // cannys
-        val cannyEdgesJob = WorkerManager.execute<Unit> {
-            val gaussianOfCurrentFrame = Mat()
-            Imgproc.GaussianBlur(frameToElaborate,gaussianOfCurrentFrame,Size(guassianSizeCanny,guassianSizeCanny),guassianSigmaCanny)
-            Imgproc.Canny(gaussianOfCurrentFrame,edges,cannyThresholdLow,cannyThresholdHigh)
-        }
-
-        val changedMaskJob = WorkerManager.execute<Unit> {
+        val objectContourJob = WorkerManager.execute<Mat> {
+            val contours = mutableListOf<MatOfPoint>()
+            val hierarchy = Mat()
+            val contourImage = Mat()
+            Imgproc.cvtColor(frameToElaborate,contourImage,Imgproc.COLOR_GRAY2RGB);
             guassianOfCurrentFrameJob.waitForResult()
             guassianOfReferenceJob.waitForResult()
             referenceWithGaussian.grayDifferenceThresholding(currentFrameWithGaussian, differenceThresholding)
@@ -163,6 +152,23 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
             Imgproc.morphologyEx(gaussianDifference,dilationGuassianDifference,Imgproc.MORPH_DILATE, changeMaskFirstDilationKernel)
             dilationGuassianDifference.areaOpening(dilationGuassianDifferenceAreaOpeningThreshold, false).convertTo(areaOpeningDilationGuassianDifference, CvType.CV_8U)
             Imgproc.morphologyEx(areaOpeningDilationGuassianDifference,chagendMask,Imgproc.MORPH_DILATE,changeMaskSecondDilationKernel)
+            Imgproc.morphologyEx(chagendMask,closedChangedMask, Imgproc.MORPH_CLOSE, changedMaskClosingKernel)
+            Imgproc.findContours(closedChangedMask, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE)
+            val objects = mutableListOf<ObjectStat>()
+            for(contourIndex in contours.indices){
+                val color = Utils.labelColor[contourIndex]
+                Imgproc.drawContours(contourImage,contours,contourIndex, Scalar(color.first,color.second,color.third),2)
+                val area = Imgproc.contourArea(contours[contourIndex])
+                val matOfPoint = MatOfPoint2f(*(contours[contourIndex].toArray()))
+                objects.add(ObjectStat(area, Imgproc.arcLength(matOfPoint, true),
+                    when{
+                        area > 4000 -> ObjectStat.ObjectType.PERSON
+                        else -> ObjectStat.ObjectType.OTHER
+                    })
+                )
+            }
+            frameStatistic.add(FrameStatistic(objects.toTypedArray()))
+            contourImage
         }
 
         val noUpdateMaskJob = WorkerManager.execute<Unit> {
@@ -177,12 +183,6 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
             Imgproc.morphologyEx(openUnion, noUpdateMask, Imgproc.MORPH_ERODE, noUpdateErosionKernel)
         }
 
-        val changedEdges = WorkerManager.execute<Mat> {
-            changedMaskJob.waitForResult()
-            cannyEdgesJob.waitForResult()
-            frameToElaborate.applyEdge(edges,chagendMask)
-        }
-
         val updateBackgroundJob = WorkerManager.execute<Unit> {
             noUpdateMaskJob.waitForResult()
             val similarMask = similarMaskJob.waitForResult()
@@ -195,14 +195,8 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
             frameCounter++
         }
 
-        /*
-        val frameStatisticJob = WorkerManager.execute<Unit> {
-            chagendMask.la
-        }*/
-
-        //frameStatisticJob.waitForResult()
         updateBackgroundJob.waitForResult()
-        return changedEdges.waitForResult()
+        return objectContourJob.waitForResult()
     }
 
     enum class Params(val defaultValue : String){
@@ -221,15 +215,12 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
         DIFFERENCE_THRESHOLD("30"),
         DILATION_GUASSIAN_DIFFERENCE_AREA_OPENING_THRESHOLD("450"),
         CHANGE_MASK_DILATION_1_KERNEL_SIZE("5"),
-        CHANGE_MASK_DILATION_2_KERNEL_SIZE("9"),
+        CHANGE_MASK_DILATION_2_KERNEL_SIZE("5"),
+        CHANGE_MASK_CLOSING_KERNEL_SIZE("15"),
         FRAME_TO_FRAME_1_THRESHOLD("8"),
         FRAME_TO_FRAME_2_THRESHOLD("10"),
         FRAME_TO_FRAME_3_THRESHOLD("15"),
         FRAME_TO_FRAME_KERNEL_SIZE("5"),
-        GUASSIAN_SIZE_CANNY("7"),
-        GUASSIAN_SIGMA_CANNY("1.5"),
-        CANNY_THRESHOLD_LOW("65"),
-        CANNY_THRESHOLD_HIGH("100"),
         NO_UPDATE_OPEN_KERNEL_SIZE("3"),
         NO_UPDATE_EROSION_KERNEL_SIZE("17")
     }
