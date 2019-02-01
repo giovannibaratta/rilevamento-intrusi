@@ -56,6 +56,7 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
     private val backgroundUpdater : MaskedBackgroundUpdater
     private var previousFrameWithGaussian : Triple<Mat,Mat,Mat>
     private var frameCounter = 0L
+    var frameStatistic = mutableListOf<FrameStatistic>()
 
     init {
 
@@ -194,8 +195,13 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
             frameCounter++
         }
 
-        updateBackgroundJob.waitForResult()
+        /*
+        val frameStatisticJob = WorkerManager.execute<Unit> {
+            chagendMask.la
+        }*/
 
+        //frameStatisticJob.waitForResult()
+        updateBackgroundJob.waitForResult()
         return changedEdges.waitForResult()
     }
 

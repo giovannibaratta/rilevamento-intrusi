@@ -191,6 +191,11 @@ fun colorEdge(edges : Mat, mask : Mat, colorInMask : Triple<Double,Double,Double
     return coloredEdges
 }
 
+/*
+fun Mat.frameStat() : FrameStatistic{
+    Imgproc.contou
+}*/
+
 fun Mat.applyEdge(edges : Mat, mask : Mat, colorInMask : Triple<Double,Double,Double> = Triple(0.0,0.0,255.0)) : Mat{
     val imageWithEdges = Mat(this.rows(), this.cols(), CvType.CV_8UC3)
     var rIndex = 0
