@@ -17,8 +17,6 @@ class Worker internal constructor(private val jobEnd : (Worker)->Unit) : Thread(
         super.run()
         canIWork.acquire()
         while(!stopToWork){
-            //val job =
-            //if(job == null) throw IllegalStateException("Non è presente nessun lavoro")
             work(currentJob.remove() ?: throw IllegalStateException("Non è presente nessun lavoro"))
             synchronized(mutex){
                 isWorking = false

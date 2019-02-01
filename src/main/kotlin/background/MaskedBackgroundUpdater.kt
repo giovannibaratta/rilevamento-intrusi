@@ -1,4 +1,4 @@
-package BakgroundManager
+package background
 
 import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation
 import org.opencv.core.CvType
@@ -8,20 +8,12 @@ import kotlin.math.abs
 
 class MaskedBackgroundUpdater(
     val imageSize : Pair<Int,Int>,
-    var updateRate : Double,
-    val similarRateUpdate : (Double, Long) -> Double,
-    var historyUpdateRate : Double,
-    val historyRateUpdate : (Double, Long) -> Double,
+    val updateRate : Double,
+    val historyUpdateRate : Double,
     val historySize : Int,
-    val maxHistorySize : Int,
     val deviationThreshold : Int,
     val background : Mat = Mat.zeros(imageSize.first, imageSize.second, CvType.CV_8UC1)){
 
-    init {
-        require(maxHistorySize >= historySize)
-    }
-
-    private var imageCount = 0L
     private val pixelHistory = Array(imageSize.first){Array(imageSize.second){ArrayDeque<Double>()}}
     private val math = StandardDeviation()
 
@@ -36,7 +28,6 @@ class MaskedBackgroundUpdater(
             cIndex = index % imageSize.second
 
             if(noUpdateMask[rIndex,cIndex][0] == 0.0){
-                //pixelHistory[rIndex][cIndex].clear()
                 continue
             }
 
@@ -73,16 +64,9 @@ class MaskedBackgroundUpdater(
                     }
                 }
             }
-            if(pixelHistory[rIndex][cIndex].size >= maxHistorySize)
+            if(pixelHistory[rIndex][cIndex].size >= historySize)
                 pixelHistory[rIndex][cIndex].remove()
         }
 
-        // DEBUG
-        //pixelHistory[210][280].forEach { print("$it ") }
-        //math.clear()
-        //print(" D: ${math.evaluate(pixelHistory[210][280].toDoubleArray())}")
-        //println("")
-        updateRate = similarRateUpdate(updateRate, ++imageCount)
-        historyUpdateRate = historyRateUpdate(historyUpdateRate, imageCount)
     }
 }

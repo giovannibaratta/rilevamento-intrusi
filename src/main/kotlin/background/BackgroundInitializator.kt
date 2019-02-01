@@ -1,4 +1,4 @@
-package BakgroundManager
+package background
 
 import org.opencv.core.CvType
 import org.opencv.core.Mat
