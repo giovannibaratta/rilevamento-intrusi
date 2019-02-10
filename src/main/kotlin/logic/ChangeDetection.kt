@@ -124,11 +124,13 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
             Imgproc.morphologyEx(fToFDifference, closeFrameToFrame1Difference, Imgproc.MORPH_CLOSE, frameToFrameKernel)
         }
 
+
         val frameToFrameSimilarityJob2 = WorkerManager.execute<Unit> {
             guassianOfCurrentFrameJob.waitForResult()
             val fToFDifference = currentFrameWithGaussian.computeMask{ rIndex, cIndex, pixelValue ->
                 abs(pixelValue - previousFrameWithGaussian.second[rIndex, cIndex][0]) < frameToFrame2Threshold
             }
+
             Imgproc.morphologyEx(fToFDifference, closeFrameToFrame2Difference, Imgproc.MORPH_CLOSE, frameToFrameKernel)
         }
 
@@ -178,6 +180,7 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
 
             val union = closeFrameToFrame1Difference.combine(closeFrameToFrame2Difference)
                                                     .combine(closeFrameToFrame3Difference)
+
             val openUnion = Mat()
             Imgproc.morphologyEx(union, openUnion,Imgproc.MORPH_OPEN,noUpdateOpenKernel)
             Imgproc.morphologyEx(openUnion, noUpdateMask, Imgproc.MORPH_ERODE, noUpdateErosionKernel)
@@ -196,6 +199,7 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
         }
 
         updateBackgroundJob.waitForResult()
+        println("Frame $frameCounter")
         return objectContourJob.waitForResult()
     }
 
@@ -206,13 +210,13 @@ class ChangeDetection(video: VideoModel) : ElaborationFunction{
         HISTORY_UPDATE_RATE("0.05"),
         INITIAL_FRAME("65"),
         SIMILARITY_THRESHOLD("10"),
-        GAUSSIAN_SIZE_CURRENT_FRAME("3"),
+        GAUSSIAN_SIZE_CURRENT_FRAME("7"),
         GAUSSIAN_SIGMA_CURRENT_FRAME("1.2"),
-        GUASSIAN_SIZE_REFERENCE("3"),
+        GUASSIAN_SIZE_REFERENCE("7"),
         GUASSIAN_SIGMA_REFERENCE("1.2"),
         SIMILAR_MASK_AREA_OPENING_THRESHOLD("400"),
         DIFFERENCE_AREA_OPENING_THRESHOLD("20"),
-        DIFFERENCE_THRESHOLD("30"),
+        DIFFERENCE_THRESHOLD("28"),
         DILATION_GUASSIAN_DIFFERENCE_AREA_OPENING_THRESHOLD("450"),
         CHANGE_MASK_DILATION_1_KERNEL_SIZE("5"),
         CHANGE_MASK_DILATION_2_KERNEL_SIZE("5"),

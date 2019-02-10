@@ -1,7 +1,6 @@
 import controller.VideoController
 import javafx.application.Application
 import javafx.fxml.FXMLLoader
-import javafx.scene.Node
 import javafx.scene.Parent
 import javafx.scene.Scene
 import javafx.scene.control.Button
@@ -14,9 +13,8 @@ import org.opencv.imgproc.Imgproc
 import org.opencv.videoio.VideoCapture
 import utility.FrameStatistic
 import utility.ObjectStat
+import utility.multithread.WorkerManager
 import java.io.FileWriter
-import java.lang.IllegalStateException
-import java.lang.StringBuilder
 
 
 class VideoApplication : Application(){
@@ -33,8 +31,10 @@ class VideoApplication : Application(){
 
     override fun stop() {
         super.stop()
+        WorkerManager.stopAll()
         saveStatToFile(algorithm.frameStatistic.toTypedArray())
         println("Termino")
+        System.exit(0)
     }
 
     private fun saveStatToFile(stat : Array<FrameStatistic>){
@@ -60,7 +60,7 @@ class VideoApplication : Application(){
     @Throws(Exception::class)
     override fun start(primaryStage: Stage) {
         primaryStage.title = "Rilevamento intrusi"
-        val loader = FXMLLoader(javaClass.getResource("VideoUI.fxml"))
+        val loader = FXMLLoader(javaClass.getResource("/VideoUI.fxml"))
         val videoModel = VideoModel(loadVideo())
         algorithm = ChangeDetection(videoModel)
         val controller = VideoController(videoModel, algorithm,  logic.Parameters())

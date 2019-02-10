@@ -24,6 +24,17 @@ object WorkerManager {
         return result.first
     }
 
+    fun stopAll() {
+        synchronized(mutex) {
+            workQueue.clear()
+            workingWorker.forEach {
+                it.stopToWork()
+                availableWorker.add(it)
+            }
+            workingWorker.clear()
+        }
+    }
+
     private fun jobEnd(worker : Worker){
         synchronized(mutex) {
             if(workQueue.isNotEmpty()){
